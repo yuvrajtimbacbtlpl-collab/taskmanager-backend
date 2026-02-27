@@ -35,6 +35,9 @@ router.post(
   staffController.createStaff
 );
 
+router.post("/forgot-password", authController.forgotPassword);
+router.post("/reset-password", authController.resetPassword);
+
 router.put(
   "/staff/:id",
   authMiddleware,

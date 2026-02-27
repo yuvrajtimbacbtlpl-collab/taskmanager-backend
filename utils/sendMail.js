@@ -1,28 +1,32 @@
 const nodemailer = require("nodemailer");
 
-const sendEmail = async ({ to, subject, html }) => {
+const sendMail = async ({ to, subject, html }) => {
   try {
+    if (!to) {
+      console.log("⚠️ No recipient email provided");
+      return;
+    }
+
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false, // true for port 465
+      service: "gmail",
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS, // must be App Password
+        pass: process.env.EMAIL_PASS,
       },
     });
 
-    const info = await transporter.sendMail({
+    await transporter.sendMail({
       from: `"Task Manager" <${process.env.EMAIL_USER}>`,
       to,
       subject,
-      html,
+      html, // ✅ use html instead of text
     });
 
-    console.log("✅ Email sent:", info.messageId);
+    console.log("✅ Email sent to:", to);
+
   } catch (err) {
-    console.error("❌ Email sending failed:", err.message);
+    console.error("❌ Mail Error:", err.message);
   }
 };
 
-module.exports = sendEmail;
+module.exports = sendMail;

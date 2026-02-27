@@ -18,7 +18,7 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const userRoutes = require("./routes/userRoutes");
 const taskStatusRoutes = require("./routes/taskStatusRoutes");
 const projectRoutes = require("./routes/projectRoutes");
-
+const documentRoutes = require("./routes/documentRoutes");
 
 const app = express();
 
@@ -29,6 +29,7 @@ const app = express();
 const allowedOrigins = [
   "http://localhost:5173",
   "https://gn4mfrgh-5173.inc1.devtunnels.ms",
+   "https://gn4mfrgh-4000.inc1.devtunnels.ms" // ✅ added the devtunnel origin
 ];
 
 app.use(
@@ -50,6 +51,8 @@ app.use(
 
 app.use(express.json());
 app.use(cookieParser());
+app.use("/uploads", express.static("uploads")); // ✅ serve uploads
+
 
 /* ================= DATABASE ================= */
 
@@ -119,6 +122,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/task-status", taskStatusRoutes);
 app.use("/uploads", express.static("uploads"));
 app.use("/api/projects", projectRoutes);
+app.use("/api/documents", documentRoutes); // ✅ documents route
 
 
 /* ================= SOCKET SERVER ================= */

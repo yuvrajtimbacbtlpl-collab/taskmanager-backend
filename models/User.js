@@ -12,28 +12,30 @@ const userSchema = new mongoose.Schema(
       unique: true
     },
 
-
     password: {
       type: String,
       required: true,
     },
 
     image: {
-      type: String, // Cloudinary URL
+      type: String,
     },
 
-    // 🔐 USER ROLE (SINGLE ROLE – CLEAN DESIGN)
     role: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Role",
       required: true,
     },
 
-
     isActive: {
       type: Boolean,
       default: true,
     },
+
+    // ✅ PASSWORD RESET FIELDS
+    resetOtp: String,
+    resetOtpExpire: Date,
+
   },
   { timestamps: true }
 );

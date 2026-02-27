@@ -12,8 +12,8 @@ const taskSchema = new mongoose.Schema(
 
     status: String,
 
-    project: {   // ✅ ADD THIS
-      type: require("mongoose").Schema.Types.ObjectId,
+    project: {
+      type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
       required: true,
     },
@@ -26,6 +26,18 @@ const taskSchema = new mongoose.Schema(
     },
 
     dueDate: Date,
+
+    // ✅ NEW FIELD (IMPORTANT)
+    type: {
+      type: String,
+      enum: ["task", "issue"],
+      default: "task",
+    },
+
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
   { timestamps: true }
 );
