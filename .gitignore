@@ -14,8 +14,7 @@ dist
 buildz
 
 # Local environment
-.env
-
+.env/
 # Editor files
 .vscode/*
 !.vscode/extensions.json
