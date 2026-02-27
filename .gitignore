@@ -1,31 +1,5 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Dependency directories
 node_modules
+.env
 uploads
-# Build output
+logs
 dist
-buildz
-
-# Local environment
-.env/
-# Editor files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-u�p�l�o�a�d�s�/�
-�
-�u�p�l�o�a�d�s�/�
-�
-�n�o�d�e�_�m�o�d�u�l�e�s�/�
-�
-�.�e�n�v�
-�
-�
