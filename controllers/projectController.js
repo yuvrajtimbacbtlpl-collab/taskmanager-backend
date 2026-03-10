@@ -7,7 +7,7 @@ exports.createProject = async (req, res) => {
   try {
     const io = req.app.get("io");
 
-    const { name, description, members = [], status, dueDate } = req.body;
+    const { name, description, members = [], type = "Business", status, dueDate } = req.body;
 
     if (!name) {
       return res.status(400).json({ message: "Project name required" });
@@ -19,6 +19,7 @@ exports.createProject = async (req, res) => {
     const project = await Project.create({
       name,
       description,
+      type,
       members,
       mentionedMembers,
       status: status || "Active",
@@ -26,7 +27,29 @@ exports.createProject = async (req, res) => {
       createdBy: req.user.id,
     });
 
-    if (io) io.emit("projectUpdated");
+    /* ===== POPULATE DATA ===== */
+    await project.populate([
+      {
+        path: "members",
+        select: "username email role",
+        populate: { path: "role", select: "name" },
+      },
+      { path: "createdBy", select: "username email" },
+    ]);
+
+    /* ===== SOCKET EMISSION ===== */
+    if (io) {
+      try {
+        // Emit to all clients in organization room (for Projects page)
+        io.to("org_${req.user.organizationId || 'default'}").emit("projectCreated", {
+          project,
+          message: `New project "${name}" has been created`,
+        });
+        console.log("✅ projectCreated emitted");
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.status(201).json({
       message: "Project created",
@@ -91,7 +114,7 @@ exports.getProjectTeam = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id).populate({
       path: "members",
-      select: "username email role",
+      select: "_id username name email role",
       populate: {
         path: "role",
         select: "name",
@@ -120,10 +143,11 @@ exports.updateProject = async (req, res) => {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    const { name, description, members, status, dueDate } = req.body;
+    const { name, description, type, members, status, dueDate } = req.body;
 
     if (name) project.name = name;
     if (description) project.description = description;
+    if (type) project.type = type;
     if (members) project.members = members;
     if (status) project.status = status;
     if (dueDate) project.dueDate = dueDate;
@@ -135,7 +159,29 @@ exports.updateProject = async (req, res) => {
 
     await project.save();
 
-    if (io) io.emit("projectUpdated");
+    /* ===== POPULATE DATA ===== */
+    await project.populate([
+      {
+        path: "members",
+        select: "username email role",
+        populate: { path: "role", select: "name" },
+      },
+      { path: "createdBy", select: "username email" },
+    ]);
+
+    /* ===== SOCKET EMISSION ===== */
+    if (io) {
+      try {
+        // Emit to all clients in organization room
+        io.to("org_${req.user.organizationId || 'default'}").emit("projectUpdated", {
+          project,
+          message: `Project "${project.name}" has been updated`,
+        });
+        console.log("✅ projectUpdated emitted");
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.json({
       message: "Project updated",
@@ -158,7 +204,20 @@ exports.deleteProject = async (req, res) => {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    if (io) io.emit("projectUpdated");
+    /* ===== SOCKET EMISSION ===== */
+    if (io) {
+      try {
+        // Emit to all clients in organization room
+        io.to("org_${req.user.organizationId || 'default'}").emit("projectDeleted", {
+          projectId: req.params.id,
+          projectName: project.name,
+          message: `Project "${project.name}" has been deleted`,
+        });
+        console.log("✅ projectDeleted emitted");
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.json({ message: "Project deleted" });
   } catch (err) {

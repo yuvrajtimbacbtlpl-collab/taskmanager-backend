@@ -12,6 +12,12 @@ const projectSchema = new mongoose.Schema(
       default: "",
     },
 
+    type: {
+      type: String,
+      enum: ["Business", "Development", "Marketing", "HR", "Design", "Other"],
+      default: "Business",
+    },
+
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,

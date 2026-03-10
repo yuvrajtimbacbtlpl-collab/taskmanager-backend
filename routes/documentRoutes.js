@@ -1,25 +1,47 @@
-const express = require("express");
-const router = express.Router();
+const router = require("express").Router();
 const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
 
 const {
   getDocuments,
-  uploadDocument,
-  requestAccess
+  createDocument,
+  deleteDocument,
+  requestAccess,
+  getRequests,
+  updateRequest,
+  getPendingRequests,
+  requestDocumentAccess,
 } = require("../controllers/documentController");
 
-const authMiddleware = require("../middleware/authMiddleware"); // ✅ default import
+const auth = require("../middleware/authMiddleware");
 
-// Debug: confirm functions
-console.log("authMiddleware:", typeof authMiddleware);
-console.log("getDocuments:", typeof getDocuments);
-console.log("uploadDocument:", typeof uploadDocument);
-console.log("requestAccess:", typeof requestAccess);
+const storage = multer.diskStorage({
+  destination: "uploads/",
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
+});
 
-// Routes
-router.get("/", authMiddleware, getDocuments);
-router.post("/", authMiddleware, upload.single("file"), uploadDocument);
-router.post("/:id/request-access", authMiddleware, requestAccess);
+const upload = multer({ storage });
+
+router.get("/", auth, getDocuments);
+
+router.post(
+  "/",
+  auth,
+  upload.single("documentFile"),
+  createDocument
+);
+
+router.delete("/:id", auth, deleteDocument);
+
+router.post("/:id/request-access", auth, requestAccess);
+
+router.get("/:id/requests", auth, getRequests);
+
+router.put("/:id/request/:userId", auth, updateRequest);
+
+router.get("/:projectId/pending-requests", auth, getPendingRequests);
+
+router.post("/:documentId/request-access-new", auth, requestDocumentAccess);
 
 module.exports = router;

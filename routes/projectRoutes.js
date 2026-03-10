@@ -12,27 +12,20 @@ const {
   deleteProject,
 } = require("../controllers/projectController");
 
-const {
-  getProjectDocuments, // ✅ new controller function
-} = require("../controllers/documentController");
-
-// CREATE
+// ================= CREATE =================
 router.post("/", auth, checkPermission("project.create"), createProject);
 
-// READ
+// ================= READ =================
 router.get("/", auth, checkPermission("project.read"), getProjects);
 router.get("/:id", auth, checkPermission("project.read"), getProjectById);
 
-// TEAM
+// ================= TEAM =================
 router.get("/:id/team", auth, checkPermission("project.read"), getProjectTeam);
 
-// DOCUMENTS by project
-router.get("/:id/documents", auth, checkPermission("document.read"), getProjectDocuments);
-
-// UPDATE
+// ================= UPDATE =================
 router.put("/:id", auth, checkPermission("project.update"), updateProject);
 
-// DELETE
+// ================= DELETE =================
 router.delete("/:id", auth, checkPermission("project.delete"), deleteProject);
 
 module.exports = router;

@@ -147,11 +147,16 @@ exports.forgotPassword = async (req, res) => {
 
     await user.save();
 
-    await sendMail(
-      user.email,
-      "Password Reset OTP",
-      `Your OTP is ${otp}. It expires in 10 minutes.`
-    );
+    await sendMail({
+      to: user.email,
+      subject: "Password Reset OTP",
+      html: `
+    <h2>Password Reset Request</h2>
+    <p>Your OTP is:</p>
+    <h1>${otp}</h1>
+    <p>This OTP will expire in 10 minutes.</p>
+  `,
+    });
 
     res.json({ message: "OTP sent to email" });
 

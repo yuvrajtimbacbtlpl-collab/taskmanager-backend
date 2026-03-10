@@ -121,6 +121,9 @@ exports.createStaff = async (req, res) => {
       role: staffRole._id,
     });
 
+    /* ===== POPULATE ROLE ===== */
+    await staff.populate("role");
+
     /* ===== EMAIL ===== */
 
     try {
@@ -148,7 +151,19 @@ exports.createStaff = async (req, res) => {
       console.log("MAIL ERROR:", mailError.message);
     }
 
-    if (io) io.emit("staffUpdated");
+    /* ===== SOCKET EMISSION ===== */
+    if (io) {
+      try {
+        // Emit to all clients in organization room (for Staff page)
+        io.to("org_${staffRole.organization || 'default'}").emit("staffCreated", {
+          staff,
+          message: `${username} has been added to the team`,
+        });
+        console.log("✅ staffCreated emitted");
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.status(201).json({
       msg: "Staff created successfully",
@@ -195,7 +210,19 @@ exports.updateStaff = async (req, res) => {
       return res.status(404).json({ msg: "Staff not found" });
     }
 
-    if (io) io.emit("staffUpdated");
+    /* ===== SOCKET EMISSION ===== */
+    if (io) {
+      try {
+        // Emit to all clients in organization room
+        io.to("org_${staffRole.organization || 'default'}").emit("staffRoleUpdated", {
+          user,
+          message: `${username}'s role or details have been updated`,
+        });
+        console.log("✅ staffRoleUpdated emitted");
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.json({
       msg: "Staff updated successfully",
@@ -236,7 +263,20 @@ exports.deleteStaff = async (req, res) => {
 
     await targetUser.deleteOne();
 
-    if (io) io.emit("staffUpdated");
+    /* ===== SOCKET EMISSION ===== */
+    if (io) {
+      try {
+        // Emit to all clients in organization room
+        io.to("org_${targetUser.role?.organization || 'default'}").emit("staffDeleted", {
+          userId: req.params.id,
+          username: targetUser.username,
+          message: `${targetUser.username} has been removed from the team`,
+        });
+        console.log("✅ staffDeleted emitted");
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.json({ msg: "User deleted successfully" });
   } catch (err) {

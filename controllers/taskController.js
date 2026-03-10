@@ -100,7 +100,26 @@ exports.createTask = async (req, res) => {
       console.error("Mail Error:", mailError.message);
     }
 
-    if (io) io.emit("taskUpdated");
+    /* ===== POPULATE DATA ===== */
+    await task.populate([
+      { path: "assignedTo", select: "username email" },
+      { path: "project", select: "name" },
+    ]);
+
+    /* ===== SOCKET EMISSION ===== */
+    if (io && task.project) {
+      try {
+        const eventName = task.type === "issue" ? "issueCreated" : "taskCreated";
+        // Emit to all clients in project room (for Tasks/Issues page)
+        io.to(`project_${task.project._id || task.project}`).emit(eventName, {
+          task,
+          message: `New ${task.type} "${task.title}" has been created`,
+        });
+        console.log(`✅ ${eventName} emitted to project room`);
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.status(201).json({
       message: `${label} created successfully`,
@@ -260,7 +279,20 @@ exports.updateTask = async (req, res) => {
       console.log("Email Error:", mailError.message);
     }
 
-    if (io) io.emit("taskUpdated");
+    /* ===== SOCKET EMISSION ===== */
+    if (io && task.project) {
+      try {
+        const eventName = task.type === "issue" ? "issueStatusChanged" : "taskStatusChanged";
+        // Emit to all clients in project room
+        io.to(`project_${task.project}`).emit(eventName, {
+          task,
+          message: `${task.type === "issue" ? "Issue" : "Task"} "${task.title}" status changed to ${task.status}`,
+        });
+        console.log(`✅ ${eventName} emitted to project room`);
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.json({
       message: `${label} updated successfully`,
@@ -288,7 +320,21 @@ exports.deleteTask = async (req, res) => {
       });
     }
 
-    if (io) io.emit("taskUpdated");
+    /* ===== SOCKET EMISSION ===== */
+    if (io && task.project) {
+      try {
+        const eventName = task.type === "issue" ? "issueDeleted" : "taskDeleted";
+        // Emit to all clients in project room
+        io.to(`project_${task.project}`).emit(eventName, {
+          taskId: req.params.id,
+          taskTitle: task.title,
+          message: `${task.type === "issue" ? "Issue" : "Task"} "${task.title}" has been deleted`,
+        });
+        console.log(`✅ ${eventName} emitted to project room`);
+      } catch (socketError) {
+        console.error("Socket emission error:", socketError);
+      }
+    }
 
     res.json({
       message: "Deleted successfully",
