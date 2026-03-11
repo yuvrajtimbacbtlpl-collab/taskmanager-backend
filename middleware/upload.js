@@ -29,10 +29,18 @@ const storage = multer.diskStorage({
 
 /* ========= FILE FILTER ========= */
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif|mp4|mov|webm/;
-  const ext = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  if (ext) cb(null, true);
-  else cb(new Error("Only images and videos are allowed"));
+  // Added support for Excel files (.xlsx and .xls)
+  const allowedTypes = /jpeg|jpg|png|gif|mp4|mov|webm|xlsx|xls|spreadsheetml/;
+  
+  const isExtensionAllowed = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const isMimeAllowed = allowedTypes.test(file.mimetype);
+
+  if (isExtensionAllowed || isMimeAllowed) {
+    cb(null, true);
+  } else {
+    // Providing a clearer error message
+    cb(new Error("Only images, videos, and Excel files are allowed"), false);
+  }
 };
 
 /* ========= MULTER INSTANCE ========= */
