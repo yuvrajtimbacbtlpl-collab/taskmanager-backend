@@ -4,14 +4,20 @@ const documentSchema = new mongoose.Schema(
   {
     title: String,
     description: String,
+    content: String, // <--- Added for CKEditor HTML content
 
     project: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
     },
 
-    fileUrl: String,
+    fileUrl: String, // Optional for editor-generated docs
     fileType: String,
+
+    isEditorGenerated: { // <--- Added to track if it was made in the editor
+      type: Boolean,
+      default: false,
+    },
 
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,

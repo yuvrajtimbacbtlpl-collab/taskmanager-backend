@@ -521,3 +521,44 @@ exports.requestDocumentAccess = async (req, res) => {
     res.status(500).json({ message: "Failed to request access" });
   }
 };
+
+
+
+exports.createInternalDocument = async (req, res) => {
+  try {
+    const { title, content, project, allowedUsers } = req.body;
+    const documentId = req.params.id;
+
+    if (documentId) {
+      const doc = await Document.findById(documentId);
+      if (!doc) return res.status(404).json({ message: "Not found" });
+      
+      // Security: Only owner can auto-save
+      if (doc.uploadedBy.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ message: "Only owner can edit" });
+      }
+
+      doc.title = title || doc.title;
+      doc.content = content || doc.content;
+      if (allowedUsers) doc.allowedUsers = [req.user._id, ...allowedUsers];
+      
+      await doc.save();
+      return res.json(doc);
+    } 
+
+    // Initial Creation
+    const newDoc = await Document.create({
+      title: title || "Untitled Document",
+      content: content || "",
+      project,
+      fileType: "Internal Doc",
+      isEditorGenerated: true,
+      uploadedBy: req.user._id,
+      allowedUsers: [req.user._id, ...(allowedUsers || [])],
+    });
+
+    res.json(newDoc);
+  } catch (err) {
+    res.status(500).json({ message: "Save failed" });
+  }
+};
