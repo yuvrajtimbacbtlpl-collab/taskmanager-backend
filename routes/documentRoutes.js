@@ -10,7 +10,7 @@ const {
   updateRequest,
   getPendingRequests,
   requestDocumentAccess,
-  createInternalDocument, // <--- New controller function
+  createInternalDocument,
 } = require("../controllers/documentController");
 
 const auth = require("../middleware/authMiddleware");
@@ -24,27 +24,35 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+/* ================= READ ================= */
 router.get("/", auth, getDocuments);
+router.get("/:id/requests", auth, getRequests); // Fetches requests for a specific doc
+router.get("/:projectId/pending-requests", auth, getPendingRequests);
 
+/* ================= CREATE ================= */
 // Standard File Upload
-router.post(
-  "/",
-  auth,
-  upload.single("documentFile"),
-  createDocument
-);
+router.post("/", auth, upload.single("documentFile"), createDocument);
 
-// New: Create Internal CKEditor Document
+// Internal CKEditor Document
 router.post("/create-internal", auth, createInternalDocument);
 
-// New: Update Internal Document (For Auto-save)
+/* ================= UPDATE ================= */
+// Update Internal Document (Auto-save)
 router.put("/:id", auth, createInternalDocument);
 
-router.delete("/:id", auth, deleteDocument);
-router.post("/:id/request-access", auth, requestAccess);
-router.get("/:id/requests", auth, getRequests);
+// Update Request Status (Approve/Reject)
+// frontend calls: api(`/documents/${docId}/request/${userId}`, { method: "PUT", body: { status } })
 router.put("/:id/request/:userId", auth, updateRequest);
-router.get("/:projectId/pending-requests", auth, getPendingRequests);
+
+/* ================= ACTIONS / REQUESTS ================= */
+// Standard Request Access
+// frontend calls: api(`/documents/${id}/request`, { method: "POST" })
+router.post("/:id/request", auth, requestAccess);
+
+// Alternate/New Request Access logic
 router.post("/:documentId/request-access-new", auth, requestDocumentAccess);
+
+/* ================= DELETE ================= */
+router.delete("/:id", auth, deleteDocument);
 
 module.exports = router;

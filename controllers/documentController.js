@@ -10,49 +10,45 @@ const sendDocumentEmail = async (toEmail, documentTitle, uploader, fileUrl) => {
   try {
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
     });
 
-    const downloadUrl = `${BASE_URL}/api/documents/download/${fileUrl}`;
+    const isInternal = fileUrl === "view-in-dashboard";
+    const actionUrl = isInternal ? `${BASE_URL.replace('/api', '')}/dashboard/documents` : `${BASE_URL}/api/documents/download/${fileUrl}`;
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: `"Document System" <${process.env.EMAIL_USER}>`,
       to: toEmail,
-      subject: `📄 New Document Shared: ${documentTitle}`,
+      subject: `Collaboration: ${documentTitle}`,
       html: `
-        <div style="font-family: Arial; padding: 20px; background-color: #f9f9f9;">
-          <h2 style="color: #333;">📄 New Document Shared With You</h2>
-          
-          <p style="color: #666; font-size: 16px;">
-            <strong>${uploader}</strong> has shared a document with you.
-          </p>
-
-          <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <p><strong>Document:</strong> ${documentTitle}</p>
-            <p><strong>Uploaded by:</strong> ${uploader}</p>
-            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+          <div style="background-color: #2b579a; padding: 20px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 20px;">Document Management</h1>
           </div>
-
-          <p style="margin: 20px 0;">
-            <a href="${downloadUrl}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
-              📥 View Document
-            </a>
-          </p>
-
-          <p style="color: #999; font-size: 12px; margin-top: 30px;">
-            This is an automated message. Please do not reply to this email.
-          </p>
+          <div style="padding: 30px; background-color: #ffffff;">
+            <p style="font-size: 16px; color: #1e293b;">Hello,</p>
+            <p style="font-size: 15px; color: #475569; line-height: 1.6;">
+              <strong>${uploader}</strong> has granted you access to a document in the project portal.
+            </p>
+            <div style="margin: 25px 0; padding: 20px; background-color: #f8fafc; border-radius: 6px; border-left: 4px solid #2b579a;">
+              <p style="margin: 0 0 10px 0;"><strong>File Name:</strong> ${documentTitle}</p>
+              <p style="margin: 0;"><strong>Type:</strong> ${isInternal ? 'Internal Workspace Doc' : 'Uploaded Attachment'}</p>
+            </div>
+            <div style="text-align: center; margin-top: 30px;">
+              <a href="${actionUrl}" style="background-color: #2b579a; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: 600; display: inline-block;">
+                ${isInternal ? 'Open in Editor' : 'Download Document'}
+              </a>
+            </div>
+          </div>
+          <div style="background-color: #f1f5f9; padding: 15px; text-align: center; font-size: 12px; color: #94a3b8;">
+            This is an automated security notification. If you didn't expect this, please contact your project administrator.
+          </div>
         </div>
       `,
     });
-
-    console.log(`✅ Document email sent to ${toEmail}`);
     return true;
   } catch (error) {
-    console.error("❌ Failed to send document email:", error.message);
+    console.error("❌ Email failed:", error.message);
     return false;
   }
 };
@@ -64,9 +60,10 @@ exports.getDocuments = async (req, res) => {
     const { project } = req.query;
 
     const docs = await Document.find({ project })
-      .populate("uploadedBy", "name email")
-      .populate("allowedUsers", "name email")
-      .populate("accessRequests.user", "name email");
+      // FIX: Added 'username' to population so the frontend can see it
+      .populate("uploadedBy", "name email username")
+      .populate("allowedUsers", "name email username")
+      .populate("accessRequests.user", "name email username");
 
     res.json(docs);
   } catch (err) {
@@ -187,7 +184,7 @@ exports.deleteDocument = async (req, res) => {
 };
 
 /* ================= REQUEST ACCESS ================= */
-
+/* ================= REQUEST ACCESS ================= */
 exports.requestAccess = async (req, res) => {
   try {
     const doc = await Document.findById(req.params.id);
@@ -196,17 +193,13 @@ exports.requestAccess = async (req, res) => {
       return res.status(404).json({ message: "Document not found" });
     }
 
-    // already allowed
-    if (doc.allowedUsers.includes(req.user._id)) {
-      return res.status(400).json({ message: "Already allowed" });
-    }
-
-    const exists = doc.accessRequests.find(
+    // Check if already requested
+    const alreadyRequested = doc.accessRequests.find(
       (r) => r.user.toString() === req.user._id.toString()
     );
 
-    if (exists) {
-      return res.status(400).json({ message: "Already requested" });
+    if (alreadyRequested) {
+      return res.status(400).json({ message: "Request already sent" });
     }
 
     doc.accessRequests.push({
@@ -216,43 +209,33 @@ exports.requestAccess = async (req, res) => {
 
     await doc.save();
 
-    // Emit socket notification to document owner and admins
+    /* ===== SOCKET NOTIFICATION ===== */
     try {
       const io = req.app.get("io");
 
-      const payload = {
-        type: "document_request",
-        documentId: doc._id,
-        documentTitle: doc.title,
-        requester: {
-          id: req.user._id,
-          name: req.user.name || req.user.username || req.user.email,
-          email: req.user.email,
-        },
-      };
-
       if (io) {
-        // notify owner
-        if (doc.uploadedBy) {
-          io.to(String(doc.uploadedBy)).emit("documentRequest", payload);
-        }
+        const ownerId = doc.uploadedBy.toString();
 
-        // notify admins
-        const adminRole = await Role.findOne({ name: "ADMIN" });
-        if (adminRole) {
-          const admins = await User.find({ role: adminRole._id });
-          admins.forEach((a) => {
-            if (a && a._id) io.to(String(a._id)).emit("documentRequest", payload);
-          });
-        }
+        io.to(`user_${ownerId}`).emit("documentAccessRequested", {
+          type: "document_access_requested",
+          documentId: doc._id,
+          documentTitle: doc.title,
+          requesterId: req.user._id,
+          requesterName: req.user.username || req.user.email,
+          requesterEmail: req.user.email,
+          status: "pending",
+        });
+
+        console.log("✅ documentAccessRequested emitted");
       }
     } catch (e) {
       console.error("Socket notify error:", e.message);
     }
 
     res.json({ message: "Request sent" });
-  } catch {
-    res.status(500).json({ message: "Request failed" });
+
+  } catch (err) {
+    res.status(500).json({ message: "Error requesting access" });
   }
 };
 
@@ -355,9 +338,11 @@ exports.getPendingRequests = async (req, res) => {
     const userId = req.user._id;
 
     // Find all documents in the project where current user is the owner
-    const documents = await Document.find({ project: projectId })
-      .populate("uploadedBy", "name email username")
-      .populate("accessRequests.user", "name email username");
+    const documents = await Document.find({ project: req.query.project })
+      .populate("uploadedBy", "_id username email")
+      .populate("allowedUsers", "_id username email")
+      .populate("accessRequests.user", "_id username email")
+      .sort({ createdAt: -1 });
 
     // Filter for pending requests where current user is the owner
     const pendingRequests = [];
@@ -505,9 +490,11 @@ exports.requestDocumentAccess = async (req, res) => {
           type: "document_access_requested",
           documentId: doc._id,
           documentTitle: doc.title,
+          requesterId: requesterId,   // ⭐ ADD
           requesterName: requesterName,
           requesterEmail: requesterEmail,
           projectId: doc.project,
+          status: "pending"
         });
         console.log(`✅ documentAccessRequested emitted to user_${ownerUserId}`);
       }
@@ -532,33 +519,65 @@ exports.createInternalDocument = async (req, res) => {
     if (documentId) {
       const doc = await Document.findById(documentId);
       if (!doc) return res.status(404).json({ message: "Not found" });
-      
-      // Security: Only owner can auto-save
+
       if (doc.uploadedBy.toString() !== req.user._id.toString()) {
         return res.status(403).json({ message: "Only owner can edit" });
       }
 
       doc.title = title || doc.title;
       doc.content = content || doc.content;
-      if (allowedUsers) doc.allowedUsers = [req.user._id, ...allowedUsers];
-      
+
+      // Handle permission updates and send emails to NEWLY added users
+      if (allowedUsers) {
+        const oldUsers = doc.allowedUsers.map(id => id.toString());
+        const newUsers = [req.user._id.toString(), ...allowedUsers];
+
+        // Find users who are newly added to send them an email
+        const newlyAdded = allowedUsers.filter(id => !oldUsers.includes(id.toString()));
+
+        doc.allowedUsers = newUsers;
+
+        for (const userId of newlyAdded) {
+          const userObj = await User.findById(userId);
+          if (userObj?.email) {
+            await sendDocumentEmail(
+              userObj.email,
+              doc.title,
+              req.user.username || req.user.email,
+              "view-in-dashboard" // Internal docs don't have a direct fileUrl
+            );
+          }
+        }
+      }
+
       await doc.save();
       return res.json(doc);
-    } 
+    }
 
     // Initial Creation
     const newDoc = await Document.create({
       title: title || "Untitled Document",
       content: content || "",
       project,
-      fileType: "Internal Doc",
+      fileType: "Editor",
       isEditorGenerated: true,
       uploadedBy: req.user._id,
       allowedUsers: [req.user._id, ...(allowedUsers || [])],
     });
 
+    // Send emails for new internal doc
+    if (allowedUsers && allowedUsers.length > 0) {
+      for (const userId of allowedUsers) {
+        const userObj = await User.findById(userId);
+        if (userObj?.email) {
+          await sendDocumentEmail(userObj.email, title, req.user.username || req.user.email, "view-in-dashboard");
+        }
+      }
+    }
+
     res.json(newDoc);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Save failed" });
   }
 };

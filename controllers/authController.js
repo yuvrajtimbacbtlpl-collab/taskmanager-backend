@@ -84,13 +84,10 @@ exports.getMe = async (req, res) => {
     }
 
     res.json({
-      id: user._id,
+      _id: user._id,
       username: user.username,
       email: user.email,
-      role: {
-        name: user.role?.name,
-        permissions: user.role?.permissions || [],
-      },
+      role: user.role
     });
 
   } catch (err) {

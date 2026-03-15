@@ -153,8 +153,10 @@ io.on("connection", (socket) => {
   // Allow clients to join rooms by user id or generic id (used across the app)
   socket.on("joinUser", (id) => {
     try {
-      if (id) socket.join(String(id));
-      console.log(`User ${id} joined personal room`);
+      if (id) {
+        socket.join(`user_${id}`);
+        console.log(`User ${id} joined room user_${id}`);
+      }
     } catch (err) {
       console.error("joinUser error:", err.message);
     }
