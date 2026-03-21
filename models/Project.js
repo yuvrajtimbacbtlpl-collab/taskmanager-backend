@@ -18,6 +18,14 @@ const projectSchema = new mongoose.Schema(
       default: "Business",
     },
 
+    // ✅ COMPANY REFERENCE - NEWLY ADDED
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
+
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -50,5 +58,9 @@ const projectSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// ✅ INDEXES FOR OPTIMIZED QUERIES
+projectSchema.index({ company: 1, createdAt: -1 });
+projectSchema.index({ company: 1, status: 1 });
 
 module.exports = mongoose.model("Project", projectSchema);

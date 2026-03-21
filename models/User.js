@@ -27,6 +27,13 @@ const userSchema = new mongoose.Schema(
       required: true,
     },
 
+    // ✅ COMPANY REFERENCE - NEWLY ADDED
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      index: true,
+    },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -39,5 +46,8 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// ✅ INDEX FOR COMPANY-BASED QUERIES
+userSchema.index({ company: 1, isActive: 1 });
 
 module.exports = mongoose.model("User", userSchema);

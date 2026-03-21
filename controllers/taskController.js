@@ -1,5 +1,6 @@
 const Task = require("../models/Task");
 const User = require("../models/User");
+const Project = require("../models/Project");
 const sendTaskEmail = require("../utils/sendMail");
 const XLSX = require("xlsx");
 const fs = require("fs");
@@ -54,6 +55,7 @@ exports.createTask = async (req, res) => {
       status,
       project,
       type,
+      company,
       appLink
     } = req.body;
 
@@ -63,10 +65,25 @@ exports.createTask = async (req, res) => {
       });
     }
 
+    if (!company) {
+      return res.status(400).json({
+        message: "Company ID is required",
+      });
+    }
+
     const user = await User.findById(assignedTo);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
+    }
+
+    // ✅ Verify project belongs to the company
+    const projectDoc = await Project.findById(project);
+    if (!projectDoc) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+    if (projectDoc.company.toString() !== company) {
+      return res.status(403).json({ message: "Project does not belong to this company" });
     }
 
     const mediaFiles = req.files ? req.files.map(f => f.filename) : [];
@@ -81,6 +98,7 @@ exports.createTask = async (req, res) => {
       media: mediaFiles,
       createdBy: req.user.id,
       project,
+      company, // ✅ ADDED COMPANY FIELD
       type: type || "task",
     });
 
@@ -111,7 +129,8 @@ exports.createTask = async (req, res) => {
     await task.populate([
       { path: "assignedTo", select: "username email" },
       { path: "project", select: "name" },
-      { path: "createdBy", select: "username email" } // Fixed "System" issue
+      { path: "company", select: "name" }, // ✅ POPULATE COMPANY
+      { path: "createdBy", select: "username email" }
     ]);
 
     /* ===== SOCKET EMISSION ===== */
@@ -140,16 +159,17 @@ exports.createTask = async (req, res) => {
 
 
 /* ================================
-   GET ALL TASKS / ISSUES (With Private Visibility)
+   GET ALL TASKS / ISSUES (With Company Filter)
 ================================ */
 exports.getTasks = async (req, res) => {
   try {
-    const { status, assignedTo, search, project, type, page = 1, limit = 10 } = req.query;
+    const { status, assignedTo, search, project, type, company, page = 1, limit = 10 } = req.query;
 
     let query = {};
     if (status) query.status = status;
     if (project) query.project = project;
     if (type) query.type = type;
+    if (company) query.company = company; // ✅ FILTER BY COMPANY
 
     // --- START: PRIVATE VISIBILITY LOGIC ---
     // If NOT an Admin, only show issues where I am the Assignee OR the Creator
@@ -177,6 +197,7 @@ exports.getTasks = async (req, res) => {
         .populate("assignedTo", "username email")
         .populate("createdBy", "username email")
         .populate("project", "name")
+        .populate("company", "name") // ✅ POPULATE COMPANY
         .sort({ createdAt: -1 })
         .skip((p - 1) * l)
         .limit(l)
@@ -206,7 +227,8 @@ exports.updateTask = async (req, res) => {
 
     const task = await Task.findById(id)
       .populate("assignedTo", "username email")
-      .populate("createdBy", "username email");
+      .populate("createdBy", "username email")
+      .populate("company", "name"); // ✅ POPULATE COMPANY
 
     if (!task) return res.status(404).json({ message: "Task not found" });
 
@@ -226,6 +248,8 @@ exports.updateTask = async (req, res) => {
       task.assignedTo = req.body.assignedTo || task.assignedTo;
       task.priority = req.body.priority || task.priority;
       task.dueDate = req.body.dueDate || task.dueDate;
+      // ✅ ALLOW COMPANY UPDATE (if needed)
+      if (req.body.company) task.company = req.body.company;
     }
 
     if (req.files && req.files.length > 0) {
@@ -309,14 +333,19 @@ exports.deleteTask = async (req, res) => {
 };
 
 /* ================================
-   BULK UPLOAD TASKS
+   BULK UPLOAD TASKS (With Company)
 ================================ */
 exports.bulkUploadTasks = async (req, res) => {
   let filePath = null;
   try {
     if (!req.files || req.files.length === 0) return res.status(400).json({ message: "No file uploaded" });
 
-    const { project, type } = req.body;
+    const { project, type, company } = req.body;
+    
+    if (!company) {
+      return res.status(400).json({ message: "Company ID is required for bulk upload" });
+    }
+
     filePath = req.files[0].path;
 
     const workbook = XLSX.readFile(filePath);
@@ -331,6 +360,7 @@ exports.bulkUploadTasks = async (req, res) => {
       type: type || "task",
       createdBy: req.user.id,
       assignedTo: row.AssignedTo || null,
+      company, // ✅ ADDED COMPANY FIELD
     }));
 
     if (tasksToInsert.length > 0) {
@@ -346,15 +376,16 @@ exports.bulkUploadTasks = async (req, res) => {
 };
 
 /* ================================
-   GET MY TASKS
+   GET MY TASKS (With Company Filter)
 ================================ */
 exports.getMyTasks = async (req, res) => {
   try {
-    const { status, search, project, type, page = 1, limit = 10 } = req.query;
+    const { status, search, project, type, company, page = 1, limit = 10 } = req.query;
     let query = { assignedTo: req.user.id };
 
     if (status) query.status = status;
     if (project) query.project = project;
+    if (company) query.company = company; // ✅ FILTER BY COMPANY
     query.type = type || "task";
 
     if (search) query.title = { $regex: search, $options: "i" };
@@ -367,6 +398,7 @@ exports.getMyTasks = async (req, res) => {
         .populate("assignedTo", "username email")
         .populate("createdBy", "username email")
         .populate("project", "name")
+        .populate("company", "name") // ✅ POPULATE COMPANY
         .sort({ createdAt: -1 })
         .skip((p - 1) * l)
         .limit(l)

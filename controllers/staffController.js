@@ -13,14 +13,23 @@ const usernameRegex = /^[a-zA-Z0-9_ ]+$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /* =============================
-   GET STAFF
+   GET STAFF (✅ FIXED - FILTER BY COMPANY)
 ============================= */
 
 exports.getStaff = async (req, res) => {
   try {
     const { role, search } = req.query;
 
-    let filter = {};
+    // ✅ ADD: Get current user's company
+    const userCompanyId = req.user?.company;
+    if (!userCompanyId) {
+      return res.status(400).json({ msg: "Company ID not found in user" });
+    }
+
+    // ✅ ADD: Filter by company
+    let filter = {
+      company: userCompanyId, // Only show staff from this company
+    };
 
     if (role) filter.role = role;
 
@@ -33,6 +42,7 @@ exports.getStaff = async (req, res) => {
 
     const staff = await User.find(filter, "-password")
       .populate("role")
+      .populate("company")
       .sort({ createdAt: -1 });
 
     const sortedStaff = staff.sort((a, b) => {
@@ -52,17 +62,23 @@ exports.getStaff = async (req, res) => {
 };
 
 /* =============================
-   CREATE STAFF
+   CREATE STAFF (✅ FIXED - ADD COMPANY)
 ============================= */
 
 exports.createStaff = async (req, res) => {
   try {
     const io = req.app.get("io");
 
-    let { username, email, role } = req.body;
+    let { username, email, role, company } = req.body; // ✅ ADDED company
 
     username = sanitize(username);
     email = sanitize(email);
+
+    // ✅ ADDED: Get and validate company
+    const companyId = company || req.user?.company;
+    if (!companyId) {
+      return res.status(400).json({ msg: "Company ID is required" });
+    }
 
     /* ===== VALIDATION ===== */
 
@@ -119,10 +135,12 @@ exports.createStaff = async (req, res) => {
       email,
       password: hash,
       role: staffRole._id,
+      company: companyId, // ✅ ADDED company
     });
 
-    /* ===== POPULATE ROLE ===== */
+    /* ===== POPULATE ROLE & COMPANY ===== */
     await staff.populate("role");
+    await staff.populate("company"); // ✅ ADDED
 
     /* ===== EMAIL ===== */
 
@@ -176,7 +194,7 @@ exports.createStaff = async (req, res) => {
 };
 
 /* =============================
-   UPDATE STAFF
+   UPDATE STAFF (✅ FIXED - POPULATE COMPANY)
 ============================= */
 
 exports.updateStaff = async (req, res) => {
@@ -204,6 +222,7 @@ exports.updateStaff = async (req, res) => {
       { new: true }
     )
       .populate("role")
+      .populate("company") // ✅ ADDED
       .select("-password");
 
     if (!user) {
@@ -235,7 +254,7 @@ exports.updateStaff = async (req, res) => {
 };
 
 /* =============================
-   DELETE STAFF
+   DELETE STAFF (PRESERVED)
 ============================= */
 
 exports.deleteStaff = async (req, res) => {

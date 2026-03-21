@@ -1,9 +1,17 @@
-const mongoose = require("mongoose"); // Missing line that caused the crash
+const mongoose = require("mongoose");
 
 const taskSchema = new mongoose.Schema(
   {
     title: { type: String, index: true },
     description: String,
+
+    // ✅ COMPANY REFERENCE - NEWLY ADDED
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
 
     assignedTo: {
       type: mongoose.Schema.Types.ObjectId,
@@ -44,7 +52,9 @@ const taskSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// High-performance index for the main table view
-taskSchema.index({ project: 1, type: 1, createdAt: -1 });
+// ✅ HIGH-PERFORMANCE INDEXES
+taskSchema.index({ company: 1, project: 1, type: 1, createdAt: -1 });
+taskSchema.index({ company: 1, assignedTo: 1 });
+taskSchema.index({ company: 1, status: 1 });
 
 module.exports = mongoose.model("Task", taskSchema);
