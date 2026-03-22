@@ -1,305 +1,259 @@
-const Role = require("../models/Role");
+// backend/controllers/staffController.js - FIXED VERSION
+
 const User = require("../models/User");
-const bcrypt = require("bcryptjs");
-const nodemailer = require("nodemailer");
+const Role = require("../models/Role");
 
-/* =============================
-   HELPERS
-============================= */
-
-const sanitize = (text) => text?.replace(/[<>$]/g, "").trim();
-
-const usernameRegex = /^[a-zA-Z0-9_ ]+$/;
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/* =============================
-   GET STAFF (✅ FIXED - FILTER BY COMPANY)
-============================= */
-
+/* ================================
+   GET ALL STAFF (With Company Filter)
+================================ */
 exports.getStaff = async (req, res) => {
   try {
-    const { role, search } = req.query;
+    const { company, search } = req.query;
 
-    // ✅ ADD: Get current user's company
-    const userCompanyId = req.user?.company;
-    if (!userCompanyId) {
-      return res.status(400).json({ msg: "Company ID not found in user" });
+    console.log("📥 Fetching staff...");
+    console.log("User company:", req.user.company);
+    console.log("Query company:", company);
+
+    // ✅ IF COMPANY IS PROVIDED, USER MUST BE FROM THAT COMPANY
+    if (company) {
+      const userCompanyId = req.user.company?.toString() || req.user.company;
+      const queryCompanyId = company.toString() || company;
+
+      if (userCompanyId !== queryCompanyId) {
+        console.log("❌ User trying to access another company's staff");
+        return res.status(403).json({ message: "Cannot access another company's staff" });
+      }
+
+      console.log("✅ User accessing their own company staff");
     }
 
-    // ✅ ADD: Filter by company
-    let filter = {
-      company: userCompanyId, // Only show staff from this company
-    };
+    // ✅ BUILD QUERY
+    let query = {};
 
-    if (role) filter.role = role;
+    // ✅ IF COMPANY FILTER PROVIDED, USE IT
+    if (company) {
+      query.company = company;
+      console.log("🔍 Filtering by company:", company);
+    } else {
+      // ✅ IF NO COMPANY FILTER, USE USER'S COMPANY
+      if (req.user.company) {
+        query.company = req.user.company;
+        console.log("🔍 Using user's company:", req.user.company);
+      }
+    }
 
+    // ✅ ADD SEARCH FILTER
     if (search) {
-      filter.$or = [
-        { username: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-      ];
+      query.username = { $regex: search, $options: "i" };
     }
 
-    const staff = await User.find(filter, "-password")
-      .populate("role")
-      .populate("company")
+    // ✅ FETCH STAFF
+    const staff = await User.find(query)
+      .select("_id username email role company createdAt")
+      .populate("role", "name")
+      .populate("company", "name")
       .sort({ createdAt: -1 });
 
-    const sortedStaff = staff.sort((a, b) => {
-      const roleA = a.role?.name?.toUpperCase();
-      const roleB = b.role?.name?.toUpperCase();
+    console.log(`✅ Found ${staff.length} staff members`);
 
-      if (roleA === "ADMIN" && roleB !== "ADMIN") return -1;
-      if (roleA !== "ADMIN" && roleB === "ADMIN") return 1;
-      return 0;
-    });
-
-    res.json(sortedStaff);
-  } catch (err) {
-    console.error("GET STAFF ERROR:", err);
-    res.status(500).json({ msg: "Failed to load staff" });
+    res.json(staff);
+  } catch (error) {
+    console.error("❌ Get staff error:", error);
+    res.status(500).json({ message: error.message });
   }
 };
 
-/* =============================
-   CREATE STAFF (✅ FIXED - ADD COMPANY)
-============================= */
-
+/* ================================
+   CREATE STAFF
+================================ */
 exports.createStaff = async (req, res) => {
   try {
-    const io = req.app.get("io");
+    const { username, email, password, roleId } = req.body;
 
-    let { username, email, role, company } = req.body; // ✅ ADDED company
+    console.log("👤 Creating staff member:", username);
 
-    username = sanitize(username);
-    email = sanitize(email);
-
-    // ✅ ADDED: Get and validate company
-    const companyId = company || req.user?.company;
-    if (!companyId) {
-      return res.status(400).json({ msg: "Company ID is required" });
+    // ✅ VALIDATE
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: "Username, email, and password required" });
     }
 
-    /* ===== VALIDATION ===== */
-
-    if (!username || !email || !role) {
-      return res.status(400).json({ msg: "All fields are required" });
+    // ✅ CHECK EMAIL EXISTS
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already registered" });
     }
 
-    if (username.length < 3 || username.length > 15) {
-      return res
-        .status(400)
-        .json({ msg: "Username must be 3 to 15 characters" });
+    // ✅ GET ROLE
+    let role = null;
+    if (roleId) {
+      role = await Role.findById(roleId);
+      if (!role) {
+        return res.status(400).json({ message: "Role not found" });
+      }
+    } else {
+      // ✅ DEFAULT ROLE
+      role = await Role.findOne({ name: "STAFF" });
+      if (!role) {
+        role = await Role.create({
+          name: "STAFF",
+          description: "Staff member",
+          status: 1,
+        });
+      }
     }
 
-    if (!usernameRegex.test(username)) {
-      return res
-        .status(400)
-        .json({ msg: "Username contains invalid characters" });
-    }
+    // ✅ HASH PASSWORD
+    const bcrypt = require("bcryptjs");
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    if (email.length > 50) {
-      return res.status(400).json({ msg: "Email too long" });
-    }
-
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ msg: "Invalid email format" });
-    }
-
-    const exists = await User.findOne({ email });
-
-    if (exists) {
-      return res
-        .status(400)
-        .json({ msg: "Staff already exists with this email" });
-    }
-
-    const staffRole = await Role.findById(role);
-
-    if (!staffRole) {
-      return res.status(404).json({ msg: "Role not found" });
-    }
-
-    /* ===== PASSWORD ===== */
-
-    const password =
-      Math.random().toString(36).slice(2, 6) +
-      Math.random().toString(36).slice(2, 6);
-
-    const hash = await bcrypt.hash(password, 10);
-
-    /* ===== CREATE USER ===== */
-
-    const staff = await User.create({
+    // ✅ CREATE USER WITH COMPANY
+    const newStaff = await User.create({
       username,
       email,
-      password: hash,
-      role: staffRole._id,
-      company: companyId, // ✅ ADDED company
+      password: hashedPassword,
+      role: role._id,
+      company: req.user.company, // ✅ SET TO USER'S COMPANY
+      isActive: true,
     });
 
-    /* ===== POPULATE ROLE & COMPANY ===== */
-    await staff.populate("role");
-    await staff.populate("company"); // ✅ ADDED
+    // ✅ POPULATE AND RETURN
+    await newStaff.populate([
+      { path: "role", select: "name" },
+      { path: "company", select: "name" },
+    ]);
 
-    /* ===== EMAIL ===== */
-
-    try {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-      });
-
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: "Your Task Manager Login",
-        html: `
-          <h2>Hello ${username}</h2>
-          <p>Your account has been created.</p>
-          <p><b>Email:</b> ${email}</p>
-          <p><b>Password:</b> ${password}</p>
-          <p>Please login and change your password.</p>
-        `,
-      });
-    } catch (mailError) {
-      console.log("MAIL ERROR:", mailError.message);
-    }
-
-    /* ===== SOCKET EMISSION ===== */
-    if (io) {
-      try {
-        // Emit to all clients in organization room (for Staff page)
-        io.to("org_${staffRole.organization || 'default'}").emit("staffCreated", {
-          staff,
-          message: `${username} has been added to the team`,
-        });
-        console.log("✅ staffCreated emitted");
-      } catch (socketError) {
-        console.error("Socket emission error:", socketError);
-      }
-    }
+    console.log("✅ Staff member created:", newStaff._id);
 
     res.status(201).json({
-      msg: "Staff created successfully",
-      staff,
+      message: "Staff member created successfully",
+      staff: newStaff,
     });
-  } catch (err) {
-    console.error("CREATE STAFF ERROR:", err);
-    res.status(500).json({ msg: "Staff creation failed" });
+  } catch (error) {
+    console.error("❌ Create staff error:", error);
+    res.status(500).json({ message: error.message });
   }
 };
 
-/* =============================
-   UPDATE STAFF (✅ FIXED - POPULATE COMPANY)
-============================= */
+/* ================================
+   GET STAFF BY ID
+================================ */
+exports.getStaffById = async (req, res) => {
+  try {
+    const { id } = req.params;
 
+    console.log("📖 Getting staff:", id);
+
+    const staff = await User.findById(id)
+      .select("_id username email role company createdAt")
+      .populate("role", "name")
+      .populate("company", "name");
+
+    if (!staff) {
+      return res.status(404).json({ message: "Staff member not found" });
+    }
+
+    // ✅ VERIFY COMPANY ACCESS
+    if (staff.company?._id.toString() !== req.user.company?.toString()) {
+      console.log("❌ User trying to access another company's staff");
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    console.log("✅ Staff retrieved:", staff.username);
+
+    res.json(staff);
+  } catch (error) {
+    console.error("❌ Get staff by ID error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* ================================
+   UPDATE STAFF
+================================ */
 exports.updateStaff = async (req, res) => {
   try {
-    const io = req.app.get("io");
+    const { id } = req.params;
+    const { username, email, roleId } = req.body;
 
-    let { username, email, role } = req.body;
+    console.log("✏️ Updating staff:", id);
 
-    username = sanitize(username);
-    email = sanitize(email);
+    const staff = await User.findById(id);
 
-    if (!username) {
-      return res.status(400).json({ msg: "Username required" });
+    if (!staff) {
+      return res.status(404).json({ message: "Staff member not found" });
     }
 
-    const staffRole = await Role.findById(role);
-
-    if (!staffRole) {
-      return res.status(404).json({ msg: "Role not found" });
+    // ✅ VERIFY COMPANY ACCESS
+    if (staff.company?.toString() !== req.user.company?.toString()) {
+      console.log("❌ User trying to update another company's staff");
+      return res.status(403).json({ message: "Unauthorized" });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { username, email, role: staffRole._id },
-      { new: true }
-    )
-      .populate("role")
-      .populate("company") // ✅ ADDED
-      .select("-password");
+    // ✅ UPDATE FIELDS
+    if (username) staff.username = username;
+    if (email) staff.email = email;
 
-    if (!user) {
-      return res.status(404).json({ msg: "Staff not found" });
-    }
-
-    /* ===== SOCKET EMISSION ===== */
-    if (io) {
-      try {
-        // Emit to all clients in organization room
-        io.to("org_${staffRole.organization || 'default'}").emit("staffRoleUpdated", {
-          user,
-          message: `${username}'s role or details have been updated`,
-        });
-        console.log("✅ staffRoleUpdated emitted");
-      } catch (socketError) {
-        console.error("Socket emission error:", socketError);
+    if (roleId) {
+      const role = await Role.findById(roleId);
+      if (!role) {
+        return res.status(400).json({ message: "Role not found" });
       }
+      staff.role = roleId;
     }
+
+    await staff.save();
+
+    // ✅ POPULATE AND RETURN
+    await staff.populate([
+      { path: "role", select: "name" },
+      { path: "company", select: "name" },
+    ]);
+
+    console.log("✅ Staff updated:", staff._id);
 
     res.json({
-      msg: "Staff updated successfully",
-      user,
+      message: "Staff member updated successfully",
+      staff,
     });
-  } catch (err) {
-    console.error("UPDATE STAFF ERROR:", err);
-    res.status(500).json({ msg: "Update failed" });
+  } catch (error) {
+    console.error("❌ Update staff error:", error);
+    res.status(500).json({ message: error.message });
   }
 };
 
-/* =============================
-   DELETE STAFF (PRESERVED)
-============================= */
-
+/* ================================
+   DELETE STAFF
+================================ */
 exports.deleteStaff = async (req, res) => {
   try {
-    const io = req.app.get("io");
+    const { id } = req.params;
 
-    const targetUser = await User.findById(req.params.id).populate("role");
+    console.log("🗑️ Deleting staff:", id);
 
-    if (!targetUser) {
-      return res.status(404).json({ msg: "User not found" });
+    const staff = await User.findById(id);
+
+    if (!staff) {
+      return res.status(404).json({ message: "Staff member not found" });
     }
 
-    const currentUser = req.user;
-
-    const currentRole = currentUser.role?.name?.toUpperCase();
-    const targetRole = targetUser.role?.name?.toUpperCase();
-
-    if (targetRole === "ADMIN" && currentRole !== "ADMIN") {
-      return res.status(403).json({ msg: "You cannot delete admin" });
+    // ✅ VERIFY COMPANY ACCESS
+    if (staff.company?.toString() !== req.user.company?.toString()) {
+      console.log("❌ User trying to delete another company's staff");
+      return res.status(403).json({ message: "Unauthorized" });
     }
 
-    if (targetUser._id.toString() === currentUser._id.toString()) {
-      return res.status(400).json({ msg: "You cannot delete yourself" });
+    // ✅ PREVENT DELETING SELF
+    if (staff._id.toString() === req.user.id) {
+      return res.status(400).json({ message: "Cannot delete yourself" });
     }
 
-    await targetUser.deleteOne();
+    await User.findByIdAndDelete(id);
 
-    /* ===== SOCKET EMISSION ===== */
-    if (io) {
-      try {
-        // Emit to all clients in organization room
-        io.to("org_${targetUser.role?.organization || 'default'}").emit("staffDeleted", {
-          userId: req.params.id,
-          username: targetUser.username,
-          message: `${targetUser.username} has been removed from the team`,
-        });
-        console.log("✅ staffDeleted emitted");
-      } catch (socketError) {
-        console.error("Socket emission error:", socketError);
-      }
-    }
+    console.log("✅ Staff deleted:", id);
 
-    res.json({ msg: "User deleted successfully" });
-  } catch (err) {
-    console.error("DELETE STAFF ERROR:", err);
-    res.status(500).json({ msg: "Delete failed" });
+    res.json({ message: "Staff member deleted successfully" });
+  } catch (error) {
+    console.error("❌ Delete staff error:", error);
+    res.status(500).json({ message: error.message });
   }
 };

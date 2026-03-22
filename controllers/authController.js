@@ -1,3 +1,5 @@
+// controllers/authController.js
+
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -5,20 +7,21 @@ const sendMail = require("../utils/sendMail");
 const isProduction = process.env.NODE_ENV === "production";
 
 /* ================= LOGIN ================= */
-
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    
     if (!email || !password) {
       return res.status(400).json({ message: "Email and password required" });
     }
 
-    const user = await User.findOne({ email }).populate({
-      path: "role",
-      populate: { path: "permissions" },
-    });
+    // ✅ POPULATE COMPANY FIELD
+    const user = await User.findOne({ email })
+      .populate({
+        path: "role",
+        populate: { path: "permissions" },
+      })
+      .populate("company", "name"); // ✅ ADD THIS LINE
 
     if (!user) {
       return res.status(400).json({ message: "Email not found" });
@@ -44,6 +47,7 @@ exports.login = async (req, res) => {
       path: "/",
     });
 
+    // ✅ RETURN COMPANY IN RESPONSE
     res.json({
       id: user._id,
       username: user.username,
@@ -52,8 +56,8 @@ exports.login = async (req, res) => {
         name: user.role?.name,
         permissions: user.role?.permissions || [],
       },
+      company: user.company?._id || null, // ✅ ADD COMPANY FIELD
     });
-
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     res.status(500).json({ message: "Login failed" });
@@ -61,7 +65,6 @@ exports.login = async (req, res) => {
 };
 
 /* ================= LOGOUT ================= */
-
 exports.logout = (req, res) => {
   res.cookie("token", "", {
     httpOnly: true,
@@ -75,33 +78,35 @@ exports.logout = (req, res) => {
 };
 
 /* ================= GET LOGGED-IN USER ================= */
-
 exports.getMe = async (req, res) => {
   try {
-    const user = req.user;
+    // ✅ POPULATE COMPANY FIELD
+    const user = await User.findById(req.user._id)
+      .populate("role", "name permissions")
+      .populate("company", "name"); // ✅ ADD THIS LINE
 
     if (!user) {
       return res.status(404).json({ msg: "User not found" });
     }
 
+    // ✅ RETURN COMPANY IN RESPONSE
     res.json({
       _id: user._id,
       username: user.username,
       email: user.email,
       role: {
         name: user.role?.name?.toUpperCase(),
-        permissions: user.role?.permissions || []
-      }
+        permissions: user.role?.permissions || [],
+      },
+      company: user.company?._id || null, // ✅ ADD COMPANY FIELD
     });
-
   } catch (err) {
     console.error("GET ME ERROR:", err);
     res.status(500).json({ msg: "Server error" });
   }
 };
 
-
-// ================= VERIFY ADMIN PASSWORD =================
+/* ================= VERIFY ADMIN PASSWORD ================= */
 exports.verifyAdminPassword = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -120,26 +125,22 @@ exports.verifyAdminPassword = async (req, res) => {
     }
 
     res.json({ msg: "Password verified" });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ msg: "Verification failed" });
   }
 };
 
-
-
+/* ================= FORGOT PASSWORD ================= */
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
 
-    if (!email)
-      return res.status(400).json({ message: "Email required" });
+    if (!email) return res.status(400).json({ message: "Email required" });
 
     const user = await User.findOne({ email });
 
-    if (!user)
-      return res.status(404).json({ message: "Email not found" });
+    if (!user) return res.status(404).json({ message: "Email not found" });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -160,14 +161,13 @@ exports.forgotPassword = async (req, res) => {
     });
 
     res.json({ message: "OTP sent to email" });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to send OTP" });
   }
 };
 
-
+/* ================= RESET PASSWORD ================= */
 exports.resetPassword = async (req, res) => {
   try {
     const { email, otp, password } = req.body;
@@ -203,7 +203,6 @@ exports.resetPassword = async (req, res) => {
     await user.save();
 
     res.json({ message: "Password reset successful" });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Reset failed" });
