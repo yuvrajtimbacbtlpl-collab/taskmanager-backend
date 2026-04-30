@@ -16,7 +16,7 @@ const Company            = require("./models/Company");
 const DeletedCompanyLog  = require("./models/DeletedCompanyLog");
 const ChatRoom    = require("./models/ChatRoom");
 const ChatMessage = require("./models/ChatMessage");
-const TimeLog     = require("./models/TimeLog"); // ✅ Time Tracking
+const TimeLog     = require("./models/TimeLog");
 
 // Routes
 const chatRoutes         = require("./routes/chatRoutes");
@@ -32,34 +32,58 @@ const documentRoutes     = require("./routes/documentRoutes");
 const companyRoutes      = require("./routes/companyRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const calendarRoutes     = require("./routes/calendarRoutes");
-const timeLogRoutes      = require("./routes/timeLogRoutes"); // ✅ Time Tracking
+const timeLogRoutes      = require("./routes/timeLogRoutes");
+const aiTaskRoutes       = require("./routes/aiTaskRoutes"); // FIX: was never imported
 
 const app = express();
 
 /* ================= CORS CONFIG ================= */
-const allowedOrigins = [
+// FIX: Dynamic origin checker instead of hardcoded array.
+// Devtunnel subdomains change frequently; static lists get stale fast.
+const STATIC_ALLOWED_ORIGINS = [
   "http://localhost:5173",
-  "https://gn4mfrgh-5173.inc1.devtunnels.ms",
-  "https://gn4mfrgh-4000.inc1.devtunnels.ms",
-  "https://taskmanager-backend-i8h7.onrender.com"
-];
+  "http://localhost:3000",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 
-app.use(cors({
+function isOriginAllowed(origin) {
+  if (!origin) return true; // allow non-browser requests (curl, Postman)
+  if (STATIC_ALLOWED_ORIGINS.includes(origin)) return true;
+  // Allow any VS Code devtunnel origin (inc1, inc2, etc.)
+  if (/^https:\/\/[a-z0-9]+-\d+\.inc\d+\.devtunnels\.ms$/.test(origin)) return true;
+  // Allow Render deployments
+  if (/\.onrender\.com$/.test(origin)) return true;
+  return false;
+}
+
+const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
+      console.warn("CORS blocked origin:", origin);
       callback(new Error("Not allowed by CORS"));
     }
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
-}));
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "Cookie",
+  ],
+};
 
+// FIX: Respond to OPTIONS preflight BEFORE all other middleware.
+// Without this line, preflight gets no CORS headers and the browser blocks it.
+app.options(/.*/, cors(corsOptions));
+app.use(cors(corsOptions));
 app.use((req, res, next) => {
-  if (req.headers['access-control-request-private-network']) {
-    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  if (req.headers["access-control-request-private-network"]) {
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
   }
   next();
 });
@@ -72,7 +96,7 @@ app.use("/uploads", express.static("uploads"));
 /* ================= DATABASE & INIT ================= */
 connectDB()
   .then(async () => {
-    console.log("✅ MongoDB Connected");
+    console.log("MongoDB Connected");
     try {
       await createAdmin();
       await createTestDocument();
@@ -81,7 +105,7 @@ connectDB()
     }
   })
   .catch((err) => {
-    console.error("❌ DB Error:", err.message);
+    console.error("DB Error:", err.message);
     process.exit(1);
   });
 
@@ -109,7 +133,7 @@ const createAdmin = async () => {
       role: adminRole._id,
       isActive: true,
     });
-    console.log("🚀 Default admin created");
+    console.log("Default admin created");
   }
 };
 
@@ -136,6 +160,7 @@ const createTestDocument = async () => {
 app.use("/api/auth",          authRoutes);
 app.use("/api/permissions",   permissionRoutes);
 app.use("/api/tasks",         taskRoutes);
+app.use("/api/tasks",         aiTaskRoutes); // FIX: AI routes were never registered
 app.use("/api/roles",         roleRoutes);
 app.use("/api/dashboard",     dashboardRoutes);
 app.use("/api/users",         userRoutes);
@@ -146,20 +171,31 @@ app.use("/api/company",       companyRoutes);
 app.use("/api/chat",          chatRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/calendar",      calendarRoutes);
-app.use("/api/timelogs",      timeLogRoutes); // ✅ Time Tracking
+app.use("/api/timelogs",      timeLogRoutes);
 
 /* ================= SOCKET.IO ================= */
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    // FIX: Same dynamic origin checker for Socket.IO CORS
+    origin: function (origin, callback) {
+      if (isOriginAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Socket.IO: Not allowed by CORS"));
+      }
+    },
     credentials: true,
+    methods: ["GET", "POST"],
   },
   pingTimeout: 60000,
+  // FIX: Start with polling so the connection succeeds even if WebSocket
+  // upgrade fails (common behind proxies/devtunnels), then upgrades automatically.
+  transports: ["polling", "websocket"],
 });
 
 io.on("connection", (socket) => {
-  console.log("🔥 Socket connected:", socket.id);
+  console.log("Socket connected:", socket.id);
 
   socket.on("joinUser", (id) => {
     if (id) socket.join(`user_${id}`);
@@ -177,11 +213,10 @@ io.on("connection", (socket) => {
     if (companyId) socket.join(`company_${companyId}`);
   });
 
-  // ✅ Chat room join/leave
   socket.on("joinChatRoom", (roomId) => {
     if (roomId) {
       socket.join(`chat_${roomId}`);
-      console.log(`💬 Socket joined chat room: chat_${roomId}`);
+      console.log(`Socket joined chat room: chat_${roomId}`);
     }
   });
 
@@ -191,7 +226,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ✅ Typing indicators
   socket.on("chatTyping", ({ roomId, userId, username }) => {
     if (roomId && userId) {
       socket.to(`chat_${roomId}`).emit("userTyping", { userId, username, roomId });
@@ -205,15 +239,14 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("❌ Socket disconnected:", socket.id);
+    console.log("Socket disconnected:", socket.id);
   });
 });
 
-// Attach socket to app for use in controllers
 app.set("io", io);
 
 /* ================= START SERVER ================= */
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
