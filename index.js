@@ -53,6 +53,7 @@ function isOriginAllowed(origin) {
   if (/^https:\/\/[a-z0-9]+-\d+\.inc\d+\.devtunnels\.ms$/.test(origin)) return true;
   // Allow Render deployments
   if (/\.onrender\.com$/.test(origin)) return true;
+  if (/\.vercel\.app$/.test(origin)) return true;
   return false;
 }
 
